@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuro-Symbolic Safe RAG - Clinical Prototype</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Terminal typing cursor effect */
+        .cursor::after {
+            content: '█';
+            animation: blink 1s step-start infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+        /* Custom scrollbar for terminal */
+        .terminal-scroll::-webkit-scrollbar {
+            width: 8px;
+        }
+        .terminal-scroll::-webkit-scrollbar-track {
+            background: #1f2937; 
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: #4b5563; 
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col h-screen overflow-hidden font-sans">
+
+    <!-- Header -->
+    <header class="bg-blue-900 text-white shadow-md p-4 flex justify-between items-center z-10">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-shield-virus text-2xl text-emerald-400"></i>
+            <h1 class="text-xl font-bold tracking-wide">Neuro-Symbolic Safe RAG <span class="text-sm font-normal text-blue-300 ml-2">v1.0.0 Prototype</span></h1>
+        </div>
+        <div class="text-sm font-semibold bg-blue-800 px-3 py-1 rounded border border-blue-700">
+            <i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i> System Online
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col p-4 md:p-6 gap-4 overflow-hidden max-w-7xl w-full mx-auto">
+        
+        <!-- Input Section -->
+        <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 shrink-0">
+            <label for="clinical-query" class="block text-sm font-semibold text-slate-700 mb-2">
+                <i class="fa-solid fa-user-doctor mr-1"></i> Doctor's Clinical Query
+            </label>
+            <div class="flex gap-3 relative">
+                <textarea id="clinical-query" rows="2" 
+                    class="w-full bg-slate-50 border border-slate-300 rounded-lg p-3 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+                    placeholder="Enter a clinical scenario or select an example below..."></textarea>
+                <button id="generate-btn" onclick="startRAGProcess()" 
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-microchip"></i> Analyze
+                </button>
+            </div>
+            <div class="mt-3 flex gap-2 text-xs">
+                <span class="text-slate-500 font-medium py-1">Examples:</span>
+                <button onclick="setExample(0)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-full border border-slate-200 transition-colors">Standard Treatment for Hypertension</button>
+                <button onclick="setExample(1)" class="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1 rounded-full border border-red-200 transition-colors font-medium">Syncope during bathing in infants (Toxic)</button>
+            </div>
+        </section>
+
+        <!-- Split Screen Output -->
+        <section class="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
+            
+            <!-- Left Panel: LLM Language Engine -->
+            <div class="flex-1 flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="bg-slate-50 border-b border-slate-200 px-4 py-3 flex justify-between items-center shrink-0">
+                    <h2 class="font-bold text-slate-700 flex items-center gap-2">
+                        <i class="fa-solid fa-brain text-blue-600"></i> Language Engine 
+                        <span class="text-xs font-normal text-slate-500">(LLM Generator)</span>
+                    </h2>
+                    <span id="llm-status" class="text-xs font-semibold px-2 py-1 rounded bg-slate-200 text-slate-600">IDLE</span>
+                </div>
+                <div class="p-5 overflow-y-auto flex-1 text-slate-800 text-sm leading-relaxed" id="llm-output">
+                    <div class="h-full flex items-center justify-center text-slate-400 italic">
+                        Awaiting query input...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Logic Engine (Guardrail) -->
+            <div class="flex-1 flex flex-col bg-slate-900 rounded-xl shadow-sm border border-slate-800 overflow-hidden">
+                <div class="bg-slate-800 border-b border-slate-700 px-4 py-3 flex justify-between items-center shrink-0">
+                    <h2 class="font-bold text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-network-wired text-emerald-400"></i> Logic Engine
+                        <span class="text-xs font-normal text-slate-400">(Poincaré Guardrail)</span>
+                    </h2>
+                    <span id="logic-status" class="text-xs font-semibold px-2 py-1 rounded bg-slate-700 text-slate-300">STANDBY</span>
+                </div>
+                <div class="p-5 overflow-y-auto flex-1 font-mono text-sm terminal-scroll bg-slate-900" id="logic-terminal">
+                    <div class="text-slate-500">> System initialized.</div>
+                    <div class="text-slate-500">> Riemannian manifold loaded (PrimeKG topology).</div>
+                    <div class="text-slate-500">> Threshold set to d_p = 1.200</div>
+                    <div class="text-slate-500">> Ready for entity mapping...</div>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        const queryInput = document.getElementById('clinical-query');
+        const llmOutput = document.getElementById('llm-output');
+        const logicTerminal = document.getElementById('logic-terminal');
+        const btn = document.getElementById('generate-btn');
+        const llmStatus = document.getElementById('llm-status');
+        const logicStatus = document.getElementById('logic-status');
+
+        let isGenerating = false;
+
+        const examples = [
+            {
+                q: "What is the recommended pharmacological treatment for primary hypertension in adults?",
+                type: "safe"
+            },
+            {
+                q: "What is the treatment pathway for syncope during bathing in infants?",
+                type: "toxic"
+            }
+        ];
+
+        function setExample(index) {
+            queryInput.value = examples[index].q;
+        }
+
+        function appendTerminal(text, colorClass = "text-slate-300", delay = 0) {
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    const line = document.createElement('div');
+                    line.className = `mb-1 ${colorClass}`;
+                    line.innerHTML = text;
+                    logicTerminal.appendChild(line);
+                    logicTerminal.scrollTop = logicTerminal.scrollHeight;
+                    resolve();
+                }, delay);
+            });
+        }
+
+        async function typeLLMText(text, isHalted = false) {
+            llmOutput.innerHTML = '<span class="cursor"></span>';
+            const cursor = llmOutput.querySelector('.cursor');
+            let currentText = '';
+            
+            // Fast typing simulation
+            for (let i = 0; i < text.length; i++) {
+                if(!isGenerating) return; // Allow interrupt
+                currentText += text.charAt(i);
+                cursor.insertAdjacentText('beforebegin', text.charAt(i));
+                llmOutput.scrollTop = llmOutput.scrollHeight;
+                await new Promise(r => setTimeout(r, 15)); // typing speed
+            }
+
+            if(isHalted) {
+                const haltMsg = document.createElement('div');
+                haltMsg.className = "mt-4 p-3 bg-red-100 border border-red-300 text-red-700 font-semibold rounded-md flex items-center gap-2 shadow-sm animate-pulse";
+                haltMsg.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> GENERATION HALTED BY LOGIC ENGINE.';
+                llmOutput.appendChild(haltMsg);
+            }
+        }
+
+        async function startRAGProcess() {
+            const query = queryInput.value.trim();
+            if (!query) return;
+
+            isGenerating = true;
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            
+            llmOutput.innerHTML = '';
+            logicTerminal.innerHTML = '<div class="text-slate-500">> Initiating Neuro-Symbolic RAG...</div>';
+            
+            llmStatus.textContent = "GENERATING...";
+            llmStatus.className = "text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700 animate-pulse";
+            
+            logicStatus.textContent = "VALIDATING...";
+            logicStatus.className = "text-xs font-semibold px-2 py-1 rounded bg-yellow-100 text-yellow-700 animate-pulse";
+
+            const isToxic = query.toLowerCase().includes("syncope") || query.toLowerCase().includes("infants");
+
+            // --- SIMULATED LOGIC ENGINE SEQUENCE ---
+            await appendTerminal("> [Bio-NER] Extracting entities from query...", "text-blue-400", 500);
+            
+            if(isToxic) {
+                await appendTerminal("> Entities found: ['Syncope', 'Bathing', 'Infants']", "text-slate-300", 400);
+                
+                // Start LLM typing simultaneously
+                const llmPromise = typeLLMText("The occurrence of syncope during bathing in infants is often associated with aquagenic urticaria or severe reflex anoxic seizures. The recommended off-label pharmacological intervention involves administering high-dose intravenous... ", true);
+                
+                await appendTerminal("> [Language Engine] Tentative pathway synthesis intercepted.", "text-yellow-400", 800);
+                await appendTerminal("> Extracting tentative generated entities: ['Intravenous Administration', 'Infant Syncope']", "text-slate-300", 400);
+                await appendTerminal("> [Guardrail] Mapping to PrimeKG Poincaré Manifold...", "text-purple-400", 600);
+                await appendTerminal("> Calculating hyperbolic distance: d_p(u, e)", "text-slate-300", 400);
+                await appendTerminal("> Processing Riemannian manifolds... ||x|| &rarr; 1", "text-slate-400", 500);
+                await appendTerminal("> Result: d_p = 1.7236", "text-red-400 font-bold", 500);
+                await appendTerminal("> Constraint check: d_p > T (1.200)", "text-red-400", 200);
+                await appendTerminal("> [ACTION] TOPOLOGICAL ANOMALY DETECTED. HALLUCINATION PROBABILITY: 99.8%", "text-red-500 font-bold bg-red-900/30 p-1", 300);
+                await appendTerminal("> [ACTION] EXECUTING SYSTEM HALT.", "text-red-500 font-bold", 100);
+
+                await llmPromise; // wait for typing to finish/halt
+                
+                logicStatus.textContent = "HALTED (SAFE)";
+                logicStatus.className = "text-xs font-semibold px-2 py-1 rounded bg-red-100 text-red-700";
+
+            } else {
+                await appendTerminal("> Entities found: ['Hypertension', 'Adults', 'Pharmacological Treatment']", "text-slate-300", 400);
+                
+                const llmText = "The recommended pharmacological treatment for primary hypertension in adults typically begins with lifestyle modifications. If medical intervention is required, first-line agents usually include Thiazide diuretics, Calcium channel blockers, ACE inhibitors, or Angiotensin II receptor blockers (ARBs), depending on patient-specific comorbidities and age.";
+                const llmPromise = typeLLMText(llmText, false);
+
+                await appendTerminal("> [Language Engine] Synthesizing pathway...", "text-yellow-400", 600);
+                await appendTerminal("> Extracting tentative generated entities: ['Thiazide diuretics', 'Calcium channel blockers', 'ACE inhibitors']", "text-slate-300", 800);
+                await appendTerminal("> [Guardrail] Mapping to PrimeKG Poincaré Manifold...", "text-purple-400", 400);
+                await appendTerminal("> Calculating hyperbolic distance: d_p(u, e)", "text-slate-300", 300);
+                await appendTerminal("> Result: d_p = 0.3548", "text-emerald-400 font-bold", 400);
+                await appendTerminal("> Constraint check: d_p <= T (1.200)", "text-emerald-400", 200);
+                await appendTerminal("> [ACTION] TOPOLOGICALLY SAFE. PATHWAY VERIFIED.", "text-emerald-400 font-bold bg-emerald-900/30 p-1", 300);
+                
+                await llmPromise;
+                
+                logicStatus.textContent = "ALLOWED";
+                logicStatus.className = "text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-700";
+            }
+
+            llmStatus.textContent = "COMPLETED";
+            llmStatus.className = "text-xs font-semibold px-2 py-1 rounded bg-slate-200 text-slate-600";
+            
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            isGenerating = false;
+        }
+    </script>
+</body>
+</html>
