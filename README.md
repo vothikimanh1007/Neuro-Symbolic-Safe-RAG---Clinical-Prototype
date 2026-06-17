@@ -6,7 +6,7 @@ This prototype demonstrates a dual-engine architecture designed to prevent Large
 
 ## 🚀 Live Demo
 
-**\[Click here to view the live prototype on GitHub Pages\]** _(Replace this link after deploying)_
+**https://vothikimanh1007.github.io/Neuro-Symbolic-Safe-RAG---Clinical-Prototype**
 
 ## 🧠 Architecture Overview
 
